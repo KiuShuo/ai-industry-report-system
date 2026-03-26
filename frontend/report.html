@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>报告查看</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; background: #f6f7fb; color: #222; }
+    .wrap { max-width: 960px; margin: 0 auto; background: #fff; padding: 24px; border-radius: 12px; box-shadow: 0 4px 18px rgba(0,0,0,.08); }
+    input, button { padding: 12px; margin-right: 8px; }
+    button { cursor: pointer; }
+    pre { white-space: pre-wrap; background: #f3f4f6; padding: 16px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>报告查看</h1>
+    <p>输入任务 ID，查看系统生成的报告内容。</p>
+    <input id="taskId" placeholder="请输入任务 ID" style="width: 320px;" />
+    <button onclick="loadReport()">查询报告</button>
+    <h2>报告内容</h2>
+    <pre id="content">等待查询...</pre>
+  </div>
+  <script>
+    async function loadReport() {
+      const taskId = document.getElementById('taskId').value;
+      const content = document.getElementById('content');
+      if (!taskId) {
+        content.textContent = '请先输入任务 ID';
+        return;
+      }
+      content.textContent = '正在加载...';
+      try {
+        const res = await fetch('/api/report/' + taskId);
+        const data = await res.json();
+        content.textContent = data && data.markdownContent ? data.markdownContent : JSON.stringify(data, null, 2);
+      } catch (e) {
+        content.textContent = '加载失败: ' + e;
+      }
+    }
+  </script>
+</body>
+</html>
