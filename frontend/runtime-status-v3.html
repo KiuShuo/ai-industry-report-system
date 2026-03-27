@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>V3 运行状态</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; background: #f6f7fb; color: #222; }
+    .wrap { max-width: 960px; margin: 0 auto; background: #fff; padding: 24px; border-radius: 12px; box-shadow: 0 4px 18px rgba(0,0,0,.08); }
+    button { padding: 12px 16px; cursor: pointer; margin-right: 8px; }
+    pre { white-space: pre-wrap; background: #f3f4f6; padding: 16px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>V3 运行状态</h1>
+    <p>用于检查当前系统是否优先走 DeerFlow，以及 DeerFlow runtime 是否已配置。</p>
+    <button onclick="checkHealth()">检查 /health</button>
+    <button onclick="checkRuntime()">检查 /api/runtime/status</button>
+    <h2>返回结果</h2>
+    <pre id="content">等待检查...</pre>
+  </div>
+  <script>
+    async function request(path) {
+      const content = document.getElementById('content');
+      content.textContent = '检查中...';
+      try {
+        const res = await fetch(path);
+        const data = await res.json();
+        content.textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        content.textContent = '检查失败: ' + e;
+      }
+    }
+    function checkHealth() { request('/health'); }
+    function checkRuntime() { request('/api/runtime/status'); }
+  </script>
+</body>
+</html>
