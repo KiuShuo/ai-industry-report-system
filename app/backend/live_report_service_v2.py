@@ -64,6 +64,7 @@ class LiveReportServiceV2:
             "topic": topic,
             "timeRange": time_range,
             "result": result,
+            "deerflow": result.get("_deerflow", {}),
         }
 
     def generate(self, topic: str, time_range: str, prefer_deerflow: bool = True) -> Dict[str, str]:
@@ -76,11 +77,14 @@ class LiveReportServiceV2:
                 fallback = self.generate_with_local_chain(topic, time_range)
                 fallback["requestedMode"] = "deerflow"
                 fallback["fallbackReason"] = "DeerFlow response did not include a usable report artifact."
+                fallback["deerflow"] = deerflow_result.get("deerflow", {})
                 return fallback
             except DeerFlowRuntimeError as exc:
                 fallback = self.generate_with_local_chain(topic, time_range)
                 fallback["requestedMode"] = "deerflow"
                 fallback["fallbackReason"] = str(exc)
+                if exc.attempts:
+                    fallback["deerflowAttempts"] = exc.attempts
                 return fallback
 
         local_result = self.generate_with_local_chain(topic, time_range)

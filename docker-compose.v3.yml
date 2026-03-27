@@ -12,10 +12,19 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEERFLOW_BASE_URL: ${DEERFLOW_BASE_URL:-}
       DEERFLOW_API_KEY: ${DEERFLOW_API_KEY:-}
+      DEERFLOW_SKILL_NAME: ${DEERFLOW_SKILL_NAME:-industry-report-skill}
       PREFER_DEERFLOW: ${PREFER_DEERFLOW:-true}
+      DEERFLOW_POLL_INTERVAL_SECONDS: ${DEERFLOW_POLL_INTERVAL_SECONDS:-2}
+      DEERFLOW_POLL_MAX_ATTEMPTS: ${DEERFLOW_POLL_MAX_ATTEMPTS:-30}
     command: sh -c "pip install fastapi uvicorn requests markdown && uvicorn app.backend.mvp_main_v3:app --host 0.0.0.0 --port 8000"
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   frontend:
     image: nginx:alpine

@@ -71,6 +71,10 @@ def generate_report(task_id: str, topic: str, time_range: str):
         time.sleep(1)
 
         result = service.generate(topic, time_range, prefer_deerflow=mode_selector.prefer_deerflow())
+        if result.get("deerflow"):
+            tasks[task_id]["deerflow"] = result.get("deerflow", {})
+        if result.get("deerflowAttempts"):
+            tasks[task_id]["deerflowAttempts"] = result.get("deerflowAttempts", [])
         if result.get("mode") == "deerflow":
             mapped = result_mapper.to_report_payload(result.get("result", {}))
             markdown = mapped.get("markdown", "")
@@ -97,6 +101,8 @@ def generate_report(task_id: str, topic: str, time_range: str):
             "fallbackReason": result.get("fallbackReason", ""),
             "skillName": result.get("skillName", ""),
             "runtimeStatus": runtime_snapshot,
+            "deerflow": result.get("deerflow", {}),
+            "deerflowAttempts": result.get("deerflowAttempts", []),
             "markdownPath": str(report_path),
             "markdownContent": markdown,
             "htmlContent": html,

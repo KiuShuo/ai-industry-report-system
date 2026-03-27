@@ -17,11 +17,17 @@
     .value { font-size: 18px; font-weight: 600; }
     .hint { color: #4b5563; margin-top: -6px; margin-bottom: 18px; }
     .report-link { display: inline-block; margin-top: 10px; color: #0f766e; text-decoration: none; font-weight: 600; }
+    .top-links { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+    .top-links a { color: #0f766e; text-decoration: none; font-weight: 600; }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>AI 行业动态查询与报告生成</h1>
+    <div class="top-links">
+      <a href="runtime-status.html">查看运行状态</a>
+      <a href="report.html">打开报告页</a>
+    </div>
     <label>行业主题</label>
     <input id="topic" value="航运融资租赁" />
     <label>时间范围</label>
@@ -49,10 +55,20 @@
         <div class="label">Fallback 原因</div>
         <div class="value" id="fallbackReason">-</div>
       </div>
+      <div class="status-card">
+        <div class="label">DeerFlow 端点</div>
+        <div class="value" id="deerflowEndpoint">-</div>
+      </div>
+      <div class="status-card">
+        <div class="label">轮询次数</div>
+        <div class="value" id="pollAttempts">-</div>
+      </div>
     </div>
     <a id="reportLink" class="report-link" href="#" target="_blank" style="display:none;">打开报告详情</a>
     <h2>结果</h2>
     <pre id="result">等待生成...</pre>
+    <h2>运行诊断</h2>
+    <pre id="taskDetails">等待生成...</pre>
   </div>
   <script>
     let pollTimer = null;
@@ -64,16 +80,28 @@
       return window.location.protocol + '//' + window.location.hostname + ':8000';
     }
 
+    function setValue(id, value) {
+      document.getElementById(id).textContent = value === undefined || value === null || value === '' ? '-' : String(value);
+    }
+
     function setTaskState(task) {
+      const deerflow = task.deerflow || {};
       document.getElementById('taskStatus').textContent = task.status || '-';
       document.getElementById('preferredMode').textContent = task.preferredMode || task.mode || '-';
       document.getElementById('actualMode').textContent = task.mode || '-';
       document.getElementById('fallbackReason').textContent = task.fallbackReason || '-';
+      setValue('deerflowEndpoint', deerflow.endpoint);
+      setValue('pollAttempts', deerflow.pollAttempts);
       if (task.reportId) {
         const link = document.getElementById('reportLink');
         link.href = 'report.html?taskId=' + encodeURIComponent(task.taskId);
         link.style.display = 'inline-block';
       }
+      document.getElementById('taskDetails').textContent = JSON.stringify({
+        runtimeStatus: task.runtimeStatus || null,
+        deerflow: task.deerflow || null,
+        deerflowAttempts: task.deerflowAttempts || []
+      }, null, 2);
     }
 
     async function loadRuntimeStatus() {
@@ -83,7 +111,8 @@
         document.getElementById('runtimeHint').textContent =
           '当前偏好模式：' + (data.preferredMode || '-') +
           '；实际可用模式：' + (data.effectiveMode || '-') +
-          (data.fallbackActive ? '；DeerFlow 不可达，已处于本地 fallback。' : '');
+          (data.fallbackActive ? '；DeerFlow 不可达，已处于本地 fallback。' : '') +
+          (data.probeEndpoint ? '；探测端点：' + data.probeEndpoint : '');
       } catch (e) {
         document.getElementById('runtimeHint').textContent = '运行模式检查失败：' + e;
       }

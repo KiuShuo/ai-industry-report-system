@@ -15,11 +15,17 @@
     .label { font-size: 12px; color: #6b7280; margin-bottom: 6px; }
     .value { font-size: 16px; font-weight: 600; word-break: break-word; }
     .report-html { background: #fcfcfd; border: 1px solid #e5e7eb; border-radius: 10px; padding: 20px; margin-top: 18px; }
+    .links { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+    .links a { color: #0f766e; text-decoration: none; font-weight: 600; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>报告查看</h1>
+    <div class="links">
+      <a href="index.html">返回任务首页</a>
+      <a href="runtime-status.html">查看运行状态</a>
+    </div>
     <p>输入任务 ID，查看系统生成的报告内容。</p>
     <input id="taskId" placeholder="请输入任务 ID" style="width: 320px;" />
     <button onclick="loadReport()">查询报告</button>
@@ -44,10 +50,20 @@
         <div class="label">Skill</div>
         <div class="value" id="skillName">-</div>
       </div>
+      <div class="item">
+        <div class="label">DeerFlow 端点</div>
+        <div class="value" id="deerflowEndpoint">-</div>
+      </div>
+      <div class="item">
+        <div class="label">轮询次数</div>
+        <div class="value" id="pollAttempts">-</div>
+      </div>
     </div>
     <h2>报告内容</h2>
     <pre id="content">等待查询...</pre>
     <div id="htmlContent" class="report-html" style="display:none;"></div>
+    <h2>运行诊断</h2>
+    <pre id="diagnostics">等待查询...</pre>
   </div>
   <script>
     let pollTimer = null;
@@ -59,12 +75,28 @@
       return window.location.protocol + '//' + window.location.hostname + ':8000';
     }
 
-    function setTaskState(task) {
+    function setValue(id, value) {
+      document.getElementById(id).textContent = value === undefined || value === null || value === '' ? '-' : String(value);
+    }
+
+    function setTaskState(task, report) {
+      const deerflow = (report && report.deerflow) || task.deerflow || {};
       document.getElementById('taskStatus').textContent = task.status || '-';
       document.getElementById('preferredMode').textContent = task.preferredMode || task.requestedMode || '-';
       document.getElementById('actualMode').textContent = task.mode || '-';
       document.getElementById('fallbackReason').textContent = task.fallbackReason || '-';
       document.getElementById('skillName').textContent = task.skillName || '-';
+      setValue('deerflowEndpoint', deerflow.endpoint);
+      setValue('pollAttempts', deerflow.pollAttempts);
+    }
+
+    function setDiagnostics(task, report) {
+      const diagnostics = {
+        taskRuntimeStatus: task.runtimeStatus || null,
+        deerflow: (report && report.deerflow) || task.deerflow || null,
+        deerflowAttempts: (report && report.deerflowAttempts) || task.deerflowAttempts || []
+      };
+      document.getElementById('diagnostics').textContent = JSON.stringify(diagnostics, null, 2);
     }
 
     async function fetchTask(taskId) {
@@ -92,10 +124,12 @@
       content.textContent = '正在加载...';
       htmlContent.style.display = 'none';
       htmlContent.innerHTML = '';
+      document.getElementById('diagnostics').textContent = '正在加载...';
       try {
         const task = await fetchTask(taskId);
-        setTaskState(task);
         const data = await fetchReport(taskId);
+        setTaskState(task, data);
+        setDiagnostics(task, data);
         content.textContent = data && data.markdownContent ? data.markdownContent : JSON.stringify(data, null, 2);
         if (data && data.htmlContent) {
           htmlContent.innerHTML = data.htmlContent;
@@ -105,8 +139,9 @@
           pollTimer = setInterval(async () => {
             try {
               const nextTask = await fetchTask(taskId);
-              setTaskState(nextTask);
               const nextReport = await fetchReport(taskId);
+              setTaskState(nextTask, nextReport);
+              setDiagnostics(nextTask, nextReport);
               content.textContent = nextReport && nextReport.markdownContent ? nextReport.markdownContent : JSON.stringify(nextReport, null, 2);
               if (nextReport && nextReport.htmlContent) {
                 htmlContent.innerHTML = nextReport.htmlContent;

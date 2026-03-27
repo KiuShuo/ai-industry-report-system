@@ -51,6 +51,36 @@ class FakeSession:
         return FakeResponse(404, {"detail": "not found"})
 
 
+class AsyncFakeSession:
+    def __init__(self):
+        self.poll_count = 0
+
+    def get(self, url, headers=None, timeout=30):
+        if url.endswith("/api/runs/run-123"):
+            self.poll_count += 1
+            if self.poll_count == 1:
+                return FakeResponse(200, {"status": "running", "runId": "run-123"})
+            return FakeResponse(
+                200,
+                {
+                    "status": "completed",
+                    "result": {
+                        "report": {
+                            "markdown": "# 异步行业报告\n\n## 核心结论\n轮询链路验证成功。"
+                        }
+                    },
+                },
+            )
+        return FakeResponse(404, {"detail": "not found"})
+
+    def post(self, url, headers=None, json=None, timeout=30):
+        if url.endswith("/api/skills/industry-report-skill/run"):
+            return FakeResponse(202, {"status": "queued", "runId": "run-123"})
+        if url.endswith("/skills/industry-report-skill/run"):
+            return FakeResponse(404, {"detail": "legacy path disabled"})
+        return FakeResponse(404, {"detail": "not found"})
+
+
 class DeerFlowRuntimeTests(unittest.TestCase):
     def test_client_probe_and_run_skill_with_api_fallback_endpoint(self):
         client = DeerFlowRuntimeClient(
@@ -84,6 +114,36 @@ class DeerFlowRuntimeTests(unittest.TestCase):
         self.assertEqual(mapped["mode"], "deerflow")
         self.assertIn("趋势判断", mapped["markdown"])
         self.assertIn("<h1>", mapped["html"])
+
+    def test_result_mapper_prefers_report_artifacts_when_available(self):
+        mapper = DeerFlowResultMapper()
+
+        payload = {
+            "artifacts": [
+                {"name": "report.md", "content": "# Artifact Report\n\n## 核心结论\n产物抽取成功。"},
+                {"name": "report.html", "content": "<h1>Artifact Report</h1>"},
+            ]
+        }
+        mapped = mapper.to_report_payload(payload)
+
+        self.assertIn("Artifact Report", mapped["markdown"])
+        self.assertIn("<h1>Artifact Report</h1>", mapped["html"])
+
+    def test_client_polls_async_run_until_completion(self):
+        client = DeerFlowRuntimeClient(
+            base_url="http://deerflow.local",
+            timeout=5,
+            probe_timeout=2,
+            session=AsyncFakeSession(),
+        )
+        client.poll_interval = 0
+        client.poll_max_attempts = 3
+
+        result = client.run_skill("industry-report-skill", {"topic": "航运融资租赁", "timeRange": "7d"})
+
+        self.assertEqual(result["_deerflow"]["async"]["token"], "run-123")
+        self.assertEqual(result["_deerflow"]["pollAttempts"], 2)
+        self.assertIn("异步行业报告", result["result"]["report"]["markdown"])
 
     def test_service_falls_back_to_local_when_deerflow_raises(self):
         service = LiveReportServiceV2()

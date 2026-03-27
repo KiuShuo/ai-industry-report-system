@@ -21,6 +21,13 @@ class DeerFlowResultMapper:
         if isinstance(deerflow_result, str):
             return deerflow_result.strip()
 
+        artifact_markdown = self._extract_artifact_content(
+            deerflow_result,
+            kind="markdown",
+        )
+        if artifact_markdown:
+            return artifact_markdown
+
         markdown = self._find_first_string(
             deerflow_result,
             ("markdown", "md", "reportMarkdown", "report_markdown"),
@@ -37,6 +44,12 @@ class DeerFlowResultMapper:
     def _extract_html(self, deerflow_result: Any) -> str:
         if not deerflow_result:
             return ""
+        artifact_html = self._extract_artifact_content(
+            deerflow_result,
+            kind="html",
+        )
+        if artifact_html:
+            return artifact_html
         return self._find_first_string(deerflow_result, ("html", "reportHtml", "report_html"))
 
     def _find_first_string(self, node: Any, keys: tuple[str, ...]) -> str:
@@ -45,7 +58,18 @@ class DeerFlowResultMapper:
                 value = node.get(key)
                 if isinstance(value, str) and value.strip():
                     return value.strip()
-            for nested_key in ("result", "data", "output", "report", "artifact", "response", "payload"):
+            for nested_key in (
+                "result",
+                "data",
+                "output",
+                "report",
+                "artifact",
+                "artifacts",
+                "response",
+                "payload",
+                "final_result",
+                "finalResult",
+            ):
                 nested_value = node.get(nested_key)
                 found = self._find_first_string(nested_value, keys)
                 if found:
@@ -86,6 +110,49 @@ class DeerFlowResultMapper:
                 found = self._extract_sections_markdown(item)
                 if found:
                     return found
+        return ""
+
+    def _extract_artifact_content(self, node: Any, kind: str) -> str:
+        if isinstance(node, dict):
+            artifacts = node.get("artifacts")
+            if isinstance(artifacts, list):
+                found = self._extract_artifact_content(artifacts, kind)
+                if found:
+                    return found
+
+            if kind == "markdown":
+                direct = self._match_artifact(node, suffixes=(".md", ".markdown"), content_types=("text/markdown",))
+            else:
+                direct = self._match_artifact(node, suffixes=(".html", ".htm"), content_types=("text/html",))
+            if direct:
+                return direct
+
+            for value in node.values():
+                found = self._extract_artifact_content(value, kind)
+                if found:
+                    return found
+
+        if isinstance(node, list):
+            for item in node:
+                found = self._extract_artifact_content(item, kind)
+                if found:
+                    return found
+        return ""
+
+    def _match_artifact(self, artifact: Any, suffixes: tuple[str, ...], content_types: tuple[str, ...]) -> str:
+        if not isinstance(artifact, dict):
+            return ""
+
+        filename = str(artifact.get("name") or artifact.get("filename") or artifact.get("path") or "").lower()
+        content_type = str(artifact.get("contentType") or artifact.get("mimeType") or artifact.get("type") or "").lower()
+        content = self._find_first_string(artifact, ("content", "text", "body", "value", "data"))
+        if not content:
+            return ""
+
+        if any(filename.endswith(suffix) for suffix in suffixes):
+            return content
+        if any(content_type == expected for expected in content_types):
+            return content
         return ""
 
     def _find_report_text(self, node: Any) -> str:
