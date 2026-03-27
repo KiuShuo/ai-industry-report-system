@@ -1,7 +1,7 @@
 import os
 from typing import Dict, List, Optional
 
-import requests
+from http_client import request_json
 
 
 class TavilyConnector:
@@ -33,7 +33,7 @@ class TavilyConnector:
             "include_raw_content": False,
         }
 
-        response = requests.post(self.base_url, json=payload, timeout=30)
+        response = request_json("POST", self.base_url, json_body=payload, timeout=30)
         response.raise_for_status()
         data = response.json()
 

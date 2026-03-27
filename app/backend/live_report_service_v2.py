@@ -4,7 +4,9 @@ from tavily_connector import TavilyConnector
 from deepseek_connector import DeepSeekConnector
 from analysis_pipeline import AnalysisPipeline
 from markdown_renderer import render_markdown_to_html
-from deerflow_runtime_client import DeerFlowRuntimeClient
+from deerflow_runtime_client import DeerFlowRuntimeClient, DeerFlowRuntimeError
+from deerflow_result_mapper import DeerFlowResultMapper
+from settings import get_settings
 
 
 class LiveReportServiceV2:
@@ -13,6 +15,8 @@ class LiveReportServiceV2:
         self.llm_connector = DeepSeekConnector()
         self.pipeline = AnalysisPipeline()
         self.deerflow_client = DeerFlowRuntimeClient()
+        self.result_mapper = DeerFlowResultMapper()
+        self.settings = get_settings()
 
     def collect(self, topic: str, time_range: str) -> List[Dict[str, str]]:
         return self.search_connector.search(topic, time_range)
@@ -51,9 +55,12 @@ class LiveReportServiceV2:
 
     def generate_with_deerflow(self, topic: str, time_range: str) -> Dict[str, str]:
         payload = {"topic": topic, "timeRange": time_range}
-        result = self.deerflow_client.run_skill("industry-report-skill", payload)
+        skill_name = self.settings.deerflow_skill_name
+        result = self.deerflow_client.run_skill(skill_name, payload)
         return {
             "mode": "deerflow",
+            "requestedMode": "deerflow",
+            "skillName": skill_name,
             "topic": topic,
             "timeRange": time_range,
             "result": result,
@@ -61,5 +68,21 @@ class LiveReportServiceV2:
 
     def generate(self, topic: str, time_range: str, prefer_deerflow: bool = True) -> Dict[str, str]:
         if prefer_deerflow and self.deerflow_client.is_configured():
-            return self.generate_with_deerflow(topic, time_range)
-        return self.generate_with_local_chain(topic, time_range)
+            try:
+                deerflow_result = self.generate_with_deerflow(topic, time_range)
+                mapped_preview = self.result_mapper.to_report_payload(deerflow_result.get("result", {}))
+                if mapped_preview.get("markdown") or mapped_preview.get("html"):
+                    return deerflow_result
+                fallback = self.generate_with_local_chain(topic, time_range)
+                fallback["requestedMode"] = "deerflow"
+                fallback["fallbackReason"] = "DeerFlow response did not include a usable report artifact."
+                return fallback
+            except DeerFlowRuntimeError as exc:
+                fallback = self.generate_with_local_chain(topic, time_range)
+                fallback["requestedMode"] = "deerflow"
+                fallback["fallbackReason"] = str(exc)
+                return fallback
+
+        local_result = self.generate_with_local_chain(topic, time_range)
+        local_result["requestedMode"] = "local"
+        return local_result

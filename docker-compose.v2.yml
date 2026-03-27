@@ -1,9 +1,7 @@
-version: '3.9'
-
 services:
   backend:
     image: python:3.10
-    container_name: ai-report-backend-v2
+    container_name: ai-report-backend-v3
     working_dir: /app
     volumes:
       - ./:/app
@@ -12,14 +10,15 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEERFLOW_BASE_URL: ${DEERFLOW_BASE_URL:-}
       DEERFLOW_API_KEY: ${DEERFLOW_API_KEY:-}
+      DEERFLOW_SKILL_NAME: ${DEERFLOW_SKILL_NAME:-industry-report-skill}
       PREFER_DEERFLOW: ${PREFER_DEERFLOW:-true}
-    command: sh -c "pip install fastapi uvicorn requests markdown && uvicorn app.backend.mvp_main_v2:app --host 0.0.0.0 --port 8000"
+    command: sh -c "pip install fastapi uvicorn requests markdown && uvicorn app.backend.mvp_main_v3:app --host 0.0.0.0 --port 8000"
     ports:
       - "8000:8000"
 
   frontend:
     image: nginx:alpine
-    container_name: ai-report-frontend-v2
+    container_name: ai-report-frontend-v3
     volumes:
       - ./frontend:/usr/share/nginx/html
     ports:

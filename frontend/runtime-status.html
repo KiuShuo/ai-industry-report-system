@@ -9,6 +9,10 @@
     .wrap { max-width: 960px; margin: 0 auto; background: #fff; padding: 24px; border-radius: 12px; box-shadow: 0 4px 18px rgba(0,0,0,.08); }
     button { padding: 12px 16px; cursor: pointer; }
     pre { white-space: pre-wrap; background: #f3f4f6; padding: 16px; border-radius: 8px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 20px 0; }
+    .item { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; }
+    .label { font-size: 12px; color: #6b7280; margin-bottom: 6px; }
+    .value { font-size: 18px; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -16,21 +20,56 @@
     <h1>系统运行模式状态</h1>
     <p>用于查看当前系统是优先走 DeerFlow 还是本地链路。</p>
     <button onclick="checkHealth()">检查状态</button>
+    <div class="grid">
+      <div class="item">
+        <div class="label">偏好模式</div>
+        <div class="value" id="preferredMode">-</div>
+      </div>
+      <div class="item">
+        <div class="label">实际可用模式</div>
+        <div class="value" id="effectiveMode">-</div>
+      </div>
+      <div class="item">
+        <div class="label">DeerFlow 可达</div>
+        <div class="value" id="runtimeReachable">-</div>
+      </div>
+      <div class="item">
+        <div class="label">Fallback 状态</div>
+        <div class="value" id="fallbackActive">-</div>
+      </div>
+    </div>
     <h2>返回结果</h2>
     <pre id="content">等待检查...</pre>
   </div>
   <script>
+    function getApiBase() {
+      if (window.location.port === '8000') {
+        return '';
+      }
+      return window.location.protocol + '//' + window.location.hostname + ':8000';
+    }
+
     async function checkHealth() {
       const content = document.getElementById('content');
       content.textContent = '检查中...';
       try {
-        const res = await fetch('/health');
+        const res = await fetch(getApiBase() + '/api/runtime/status');
         const data = await res.json();
+        document.getElementById('preferredMode').textContent = data.preferredMode || '-';
+        document.getElementById('effectiveMode').textContent = data.effectiveMode || '-';
+        document.getElementById('runtimeReachable').textContent = String(Boolean(data.runtimeReachable));
+        document.getElementById('fallbackActive').textContent = data.fallbackActive ? '已启用' : '未启用';
         content.textContent = JSON.stringify(data, null, 2);
       } catch (e) {
+        document.getElementById('preferredMode').textContent = '-';
+        document.getElementById('effectiveMode').textContent = '-';
+        document.getElementById('runtimeReachable').textContent = '-';
+        document.getElementById('fallbackActive').textContent = '-';
         content.textContent = '检查失败: ' + e;
       }
     }
+
+    checkHealth();
   </script>
 </body>
 </html>

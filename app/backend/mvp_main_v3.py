@@ -61,8 +61,12 @@ class CreateTaskRequest(BaseModel):
 
 def generate_report(task_id: str, topic: str, time_range: str):
     try:
+        preferred_mode = mode_selector.current_mode()
+        runtime_snapshot = status_probe.inspect()
         tasks[task_id]["status"] = "running"
-        tasks[task_id]["mode"] = mode_selector.current_mode()
+        tasks[task_id]["preferredMode"] = preferred_mode
+        tasks[task_id]["mode"] = preferred_mode
+        tasks[task_id]["runtimeStatus"] = runtime_snapshot
         save_json(TASK_FILE, tasks)
         time.sleep(1)
 
@@ -89,6 +93,10 @@ def generate_report(task_id: str, topic: str, time_range: str):
             "timeRange": time_range,
             "summary": f"这是关于“{topic}”的自动生成行业动态分析报告。",
             "mode": report_mode,
+            "requestedMode": result.get("requestedMode", preferred_mode),
+            "fallbackReason": result.get("fallbackReason", ""),
+            "skillName": result.get("skillName", ""),
+            "runtimeStatus": runtime_snapshot,
             "markdownPath": str(report_path),
             "markdownContent": markdown,
             "htmlContent": html,
@@ -96,6 +104,12 @@ def generate_report(task_id: str, topic: str, time_range: str):
         }
 
         tasks[task_id]["status"] = "finished"
+        tasks[task_id]["mode"] = report_mode
+        tasks[task_id]["requestedMode"] = result.get("requestedMode", preferred_mode)
+        if result.get("skillName"):
+            tasks[task_id]["skillName"] = result.get("skillName")
+        if result.get("fallbackReason"):
+            tasks[task_id]["fallbackReason"] = result.get("fallbackReason")
         tasks[task_id]["reportId"] = report_id
         tasks[task_id]["finishedAt"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -126,18 +140,28 @@ def runtime_status():
 
 @app.post("/api/task/create")
 def create_task(req: CreateTaskRequest, background_tasks: BackgroundTasks):
+    preferred_mode = mode_selector.current_mode()
+    runtime_snapshot = status_probe.inspect()
     task_id = f"T{datetime.now().strftime('%Y%m%d%H%M%S')}{uuid.uuid4().hex[:6]}"
     tasks[task_id] = {
         "taskId": task_id,
         "topic": req.topic,
         "timeRange": req.timeRange,
         "status": "pending",
-        "mode": mode_selector.current_mode(),
+        "mode": preferred_mode,
+        "preferredMode": preferred_mode,
+        "runtimeStatus": runtime_snapshot,
         "createdAt": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     save_json(TASK_FILE, tasks)
     background_tasks.add_task(generate_report, task_id, req.topic, req.timeRange)
-    return {"taskId": task_id, "status": "pending", "mode": mode_selector.current_mode()}
+    return {
+        "taskId": task_id,
+        "status": "pending",
+        "mode": preferred_mode,
+        "preferredMode": preferred_mode,
+        "runtimeStatus": runtime_snapshot,
+    }
 
 
 @app.get("/api/task/status/{task_id}")

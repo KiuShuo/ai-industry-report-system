@@ -1,7 +1,7 @@
 import os
 from typing import Optional
 
-import requests
+from http_client import request_json
 
 
 class DeepSeekConnector:
@@ -30,7 +30,7 @@ class DeepSeekConnector:
             "temperature": 0.3,
         }
 
-        response = requests.post(self.base_url, headers=headers, json=payload, timeout=60)
+        response = request_json("POST", self.base_url, headers=headers, json_body=payload, timeout=60)
         response.raise_for_status()
         data = response.json()
         return data.get("choices", [{}])[0].get("message", {}).get("content", "")

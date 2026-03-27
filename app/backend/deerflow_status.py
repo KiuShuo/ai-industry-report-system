@@ -10,10 +10,11 @@ class DeerFlowStatusProbe:
         self.selector = RuntimeModeSelector()
 
     def inspect(self) -> Dict[str, object]:
-        configured = self.client.is_configured()
-        return {
-            "runtimeConfigured": configured,
-            "preferredMode": self.selector.current_mode(),
-            "deerflowBaseUrlPresent": configured,
-            "message": "DeerFlow runtime is configured" if configured else "DeerFlow runtime is not configured",
-        }
+        status = self.client.probe()
+        preferred_mode = self.selector.current_mode()
+        runtime_reachable = bool(status.get("runtimeReachable"))
+        status["preferredMode"] = preferred_mode
+        status["effectiveMode"] = "deerflow" if preferred_mode == "deerflow" and runtime_reachable else "local"
+        status["fallbackActive"] = preferred_mode == "deerflow" and not runtime_reachable
+        status["deerflowBaseUrlPresent"] = status.get("runtimeConfigured", False)
+        return status
