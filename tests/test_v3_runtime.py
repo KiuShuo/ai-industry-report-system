@@ -13,7 +13,9 @@ from deerflow_result_mapper import DeerFlowResultMapper
 from deerflow_runtime_client import DeerFlowRuntimeClient, DeerFlowRuntimeError
 from deerflow_status import DeerFlowStatusProbe
 from live_report_service_v2 import LiveReportServiceV2
+from search_profiles import resolve_search_profile
 from settings import get_settings
+from tavily_connector import TavilyConnector
 
 
 class FakeResponse:
@@ -168,6 +170,98 @@ class DeerFlowRuntimeTests(unittest.TestCase):
         self.assertEqual(result["mode"], "local")
         self.assertEqual(result["requestedMode"], "deerflow")
         self.assertEqual(result["fallbackReason"], "mock deerflow failure")
+
+    def test_analysis_pipeline_preserves_source_metadata(self):
+        service = LiveReportServiceV2()
+
+        analyzed = service.analyze(
+            [
+                {
+                    "sourceId": "S1",
+                    "title": "示例来源",
+                    "summary": "来源摘要",
+                    "category": "search",
+                    "source": "example.com",
+                    "url": "https://example.com/report",
+                }
+            ]
+        )
+
+        self.assertEqual(analyzed[0]["sourceId"], "S1")
+        self.assertEqual(analyzed[0]["source"], "example.com")
+        self.assertEqual(analyzed[0]["url"], "https://example.com/report")
+
+    def test_local_report_appends_sources_section(self):
+        service = LiveReportServiceV2()
+        sample_items = [
+            {
+                "sourceId": "S1",
+                "title": "航运租赁市场更新",
+                "summary": "市场规模增长。",
+                "category": "search",
+                "source": "example.com",
+                "url": "https://example.com/report",
+            }
+        ]
+
+        with patch.object(service, "collect", return_value=sample_items):
+            with patch.object(service.llm_connector, "summarize", return_value="# 报告\n\n核心内容 [S1]"):
+                result = service.generate_with_local_chain("航运融资租赁", "7d")
+
+        self.assertIn("## 数据来源", result["markdown"])
+        self.assertIn("[S1] 航运租赁市场更新", result["markdown"])
+        self.assertIn("https://example.com/report", result["markdown"])
+        self.assertEqual(result["sources"][0]["sourceId"], "S1")
+
+    def test_tavily_connector_builds_payload_with_filters(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "SEARCH_PROFILE": "auto",
+                "TAVILY_TOPIC": "news",
+                "TAVILY_SEARCH_DEPTH": "advanced",
+                "TAVILY_INCLUDE_RAW_CONTENT": "markdown",
+                "TAVILY_INCLUDE_FAVICON": "true",
+                "TAVILY_INCLUDE_DOMAINS": "",
+                "TAVILY_EXCLUDE_DOMAINS": "example.com",
+                "TAVILY_AUTO_PARAMETERS": "false",
+                "TAVILY_CHUNKS_PER_SOURCE": "4",
+            },
+        ):
+            connector = TavilyConnector(api_key="test-key")
+            profile = connector.resolve_profile("航运融资租赁")
+            payload = connector._build_payload("航运融资租赁", "7d", 6, profile)
+
+        self.assertEqual(profile.name, "shipping-finance-leasing")
+        self.assertEqual(payload["topic"], "news")
+        self.assertEqual(payload["search_depth"], "advanced")
+        self.assertEqual(payload["include_raw_content"], "markdown")
+        self.assertIn("seatrade-maritime.com", payload["include_domains"])
+        self.assertIn("baike.baidu.com", payload["exclude_domains"])
+        self.assertIn("example.com", payload["exclude_domains"])
+        self.assertEqual(payload["chunks_per_source"], 4)
+        self.assertEqual(payload["max_results"], 6)
+        self.assertIn("start_date", payload)
+        self.assertIn("end_date", payload)
+
+    def test_search_profile_resolution_falls_back_to_generic(self):
+        profile = resolve_search_profile("半导体设备", "auto")
+        self.assertEqual(profile.name, "generic-industry")
+
+    def test_search_profile_can_be_forced_by_env_name(self):
+        profile = resolve_search_profile("任意主题", "shipping-finance-leasing")
+        self.assertEqual(profile.name, "shipping-finance-leasing")
+
+    def test_evidence_excerpt_prefers_raw_content(self):
+        service = LiveReportServiceV2()
+        excerpt = service._evidence_excerpt(
+            {
+                "summary": "摘要文本",
+                "rawContent": "原文正文内容",
+            }
+        )
+
+        self.assertEqual(excerpt, "原文正文内容")
 
     def test_status_probe_reports_effective_local_when_deerflow_unreachable(self):
         probe = DeerFlowStatusProbe()

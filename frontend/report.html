@@ -17,6 +17,10 @@
     .report-html { background: #fcfcfd; border: 1px solid #e5e7eb; border-radius: 10px; padding: 20px; margin-top: 18px; }
     .links { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
     .links a { color: #0f766e; text-decoration: none; font-weight: 600; }
+    .source-list { background: #fcfcfd; border: 1px solid #e5e7eb; border-radius: 10px; padding: 20px; margin-top: 18px; }
+    .source-list ul { margin: 0; padding-left: 20px; }
+    .source-list li { margin-bottom: 10px; }
+    .source-list a { color: #0f766e; word-break: break-all; }
   </style>
 </head>
 <body>
@@ -62,6 +66,8 @@
     <h2>报告内容</h2>
     <pre id="content">等待查询...</pre>
     <div id="htmlContent" class="report-html" style="display:none;"></div>
+    <h2>数据来源</h2>
+    <div id="sources" class="source-list">等待查询...</div>
     <h2>运行诊断</h2>
     <pre id="diagnostics">等待查询...</pre>
   </div>
@@ -99,6 +105,31 @@
       document.getElementById('diagnostics').textContent = JSON.stringify(diagnostics, null, 2);
     }
 
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    function setSources(report) {
+      const container = document.getElementById('sources');
+      const sources = (report && report.sources) || [];
+      if (!sources.length) {
+        container.textContent = '当前报告未返回结构化来源列表。';
+        return;
+      }
+      container.innerHTML = '<ul>' + sources.map((item) => {
+        const sourceId = escapeHtml(item.sourceId || '-');
+        const title = escapeHtml(item.title || '未命名来源');
+        const source = escapeHtml(item.source || '未知来源');
+        const url = item.url ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">${escapeHtml(item.url)}</a>` : '无链接';
+        return `<li><strong>[${sourceId}] ${title}</strong><br />来源：${source}<br />链接：${url}</li>`;
+      }).join('') + '</ul>';
+    }
+
     async function fetchTask(taskId) {
       const res = await fetch(getApiBase() + '/api/task/status/' + taskId);
       return res.json();
@@ -124,12 +155,14 @@
       content.textContent = '正在加载...';
       htmlContent.style.display = 'none';
       htmlContent.innerHTML = '';
+      document.getElementById('sources').textContent = '正在加载...';
       document.getElementById('diagnostics').textContent = '正在加载...';
       try {
         const task = await fetchTask(taskId);
         const data = await fetchReport(taskId);
         setTaskState(task, data);
         setDiagnostics(task, data);
+        setSources(data);
         content.textContent = data && data.markdownContent ? data.markdownContent : JSON.stringify(data, null, 2);
         if (data && data.htmlContent) {
           htmlContent.innerHTML = data.htmlContent;
@@ -142,6 +175,7 @@
               const nextReport = await fetchReport(taskId);
               setTaskState(nextTask, nextReport);
               setDiagnostics(nextTask, nextReport);
+              setSources(nextReport);
               content.textContent = nextReport && nextReport.markdownContent ? nextReport.markdownContent : JSON.stringify(nextReport, null, 2);
               if (nextReport && nextReport.htmlContent) {
                 htmlContent.innerHTML = nextReport.htmlContent;

@@ -100,9 +100,11 @@ def generate_report(task_id: str, topic: str, time_range: str):
             "requestedMode": result.get("requestedMode", preferred_mode),
             "fallbackReason": result.get("fallbackReason", ""),
             "skillName": result.get("skillName", ""),
+            "searchProfile": result.get("searchProfile", ""),
             "runtimeStatus": runtime_snapshot,
             "deerflow": result.get("deerflow", {}),
             "deerflowAttempts": result.get("deerflowAttempts", []),
+            "sources": result.get("sources", []),
             "markdownPath": str(report_path),
             "markdownContent": markdown,
             "htmlContent": html,
@@ -116,6 +118,10 @@ def generate_report(task_id: str, topic: str, time_range: str):
             tasks[task_id]["skillName"] = result.get("skillName")
         if result.get("fallbackReason"):
             tasks[task_id]["fallbackReason"] = result.get("fallbackReason")
+        if result.get("searchProfile"):
+            tasks[task_id]["searchProfile"] = result.get("searchProfile")
+        if result.get("sources"):
+            tasks[task_id]["sources"] = result.get("sources", [])
         tasks[task_id]["reportId"] = report_id
         tasks[task_id]["finishedAt"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
