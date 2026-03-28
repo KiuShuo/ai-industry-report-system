@@ -9,6 +9,10 @@ cp .env.example .env
 ```bash
 TAVILY_API_KEY=your_tavily_key
 SEARCH_PROFILE=auto
+ENABLE_OFFICIAL_SOURCES=true
+OFFICIAL_SOURCE_NAMES=cninfo,stats,csrc,sse,szse,miit,safe,customs
+OFFICIAL_SOURCE_MAX_RESULTS=2
+OFFICIAL_SOURCE_TIMEOUT=12
 TAVILY_TOPIC=news
 TAVILY_SEARCH_DEPTH=advanced
 TAVILY_INCLUDE_RAW_CONTENT=markdown
@@ -28,6 +32,9 @@ PREFER_DEERFLOW=true
 - If `PREFER_DEERFLOW=true` and `DEERFLOW_BASE_URL` is set, the system prefers DeerFlow execution.
 - Otherwise the system falls back to the local chain: Tavily + AnalysisPipeline + DeepSeek.
 - `SEARCH_PROFILE=auto` means the system auto-selects a built-in search profile based on the topic.
+- `ENABLE_OFFICIAL_SOURCES=true` enables free public mainland-official sources ahead of Tavily in the local chain.
+- `OFFICIAL_SOURCE_NAMES` controls which official source adapters are active. The current built-ins are `cninfo`, `stats`, `csrc`, `sse`, `szse`, `miit`, `safe`, `customs`, and optional `bse`.
+- `OFFICIAL_SOURCE_MAX_RESULTS` limits how many items each official source contributes before Tavily fills the rest.
 - You can force a profile later, for example `shipping-finance-leasing`, without changing application code.
 - `TAVILY_INCLUDE_DOMAINS` and `TAVILY_EXCLUDE_DOMAINS` can be used to control source quality.
 - `TAVILY_INCLUDE_RAW_CONTENT=markdown` helps the report use stronger evidence than short search snippets.

@@ -4,6 +4,7 @@ from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 from http_client import request_json
+from query_intent import QueryIntent, infer_query_intent
 from search_profiles import SearchProfile, resolve_search_profile
 from settings import get_settings
 
@@ -23,8 +24,9 @@ class TavilyConnector:
             "Content-Type": "application/json",
         }
 
-    def _query_for_topic(self, topic: str, time_range: str, profile: SearchProfile) -> str:
-        return f"{topic} {profile.query_hint} in the last {time_range}"
+    def _query_for_topic(self, topic: str, time_range: str, profile: SearchProfile, intent: QueryIntent) -> str:
+        search_topic = intent.normalized_topic or topic
+        return f"{search_topic} {profile.query_hint} in the last {time_range}"
 
     def _time_filter_payload(self, time_range: str) -> Dict[str, object]:
         normalized = (time_range or "").strip().lower()
@@ -69,12 +71,20 @@ class TavilyConnector:
                 combined.append(item)
         return combined
 
-    def resolve_profile(self, topic: str) -> SearchProfile:
-        return resolve_search_profile(topic, self.settings.search_profile)
+    def resolve_profile(self, topic: str, intent: QueryIntent) -> SearchProfile:
+        preferred_name = intent.profile_hint or self.settings.search_profile
+        return resolve_search_profile(topic, preferred_name)
 
-    def _build_payload(self, topic: str, time_range: str, max_results: int, profile: SearchProfile) -> Dict[str, object]:
+    def _build_payload(
+        self,
+        topic: str,
+        time_range: str,
+        max_results: int,
+        profile: SearchProfile,
+        intent: QueryIntent,
+    ) -> Dict[str, object]:
         payload: Dict[str, object] = {
-            "query": self._query_for_topic(topic, time_range, profile),
+            "query": self._query_for_topic(topic, time_range, profile, intent),
             "topic": profile.tavily_topic or self.settings.tavily_topic,
             "search_depth": self.settings.tavily_search_depth,
             "max_results": max_results,
@@ -84,6 +94,7 @@ class TavilyConnector:
             "include_images": False,
             "auto_parameters": self.settings.tavily_auto_parameters,
             "include_usage": True,
+            "exact_match": profile.exact_match,
         }
 
         if self.settings.tavily_chunks_per_source > 0:
@@ -112,8 +123,9 @@ class TavilyConnector:
                 }
             ]
 
-        profile = self.resolve_profile(topic)
-        payload = self._build_payload(topic, time_range, max_results, profile)
+        intent = infer_query_intent(topic)
+        profile = self.resolve_profile(topic, intent)
+        payload = self._build_payload(topic, time_range, max_results, profile, intent)
         response = request_json("POST", self.base_url, headers=self._headers(), json_body=payload, timeout=30)
         response.raise_for_status()
         data = response.json()
@@ -135,6 +147,14 @@ class TavilyConnector:
                     "publishedDate": result.get("published_date", "") or result.get("publishedDate", ""),
                     "favicon": result.get("favicon", ""),
                     "searchProfile": profile.name,
+                    "normalizedTopic": intent.normalized_topic or topic,
+                    "ticker": intent.ticker,
+                    "securityCode": intent.security_code,
+                    "companyHint": intent.company_hint,
+                    "canonicalSymbol": intent.canonical_symbol,
+                    "market": intent.market,
+                    "exchange": intent.exchange,
+                    "identifierType": intent.identifier_type,
                 }
             )
         return items

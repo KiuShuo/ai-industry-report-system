@@ -13,6 +13,9 @@ from deerflow_result_mapper import DeerFlowResultMapper
 from deerflow_runtime_client import DeerFlowRuntimeClient, DeerFlowRuntimeError
 from deerflow_status import DeerFlowStatusProbe
 from live_report_service_v2 import LiveReportServiceV2
+from official_sources import OfficialPublicSourceConnector
+from query_intent import infer_query_intent
+from security_identifier import normalize_security_identifier
 from search_profiles import resolve_search_profile
 from settings import get_settings
 from tavily_connector import TavilyConnector
@@ -27,6 +30,17 @@ class FakeResponse:
 
     def json(self):
         return self._payload
+
+
+class FakeTextResponse:
+    def __init__(self, status_code, text):
+        self.status_code = status_code
+        self.text = text
+        self.headers = {"Content-Type": "text/html"}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP request failed with status {self.status_code}")
 
 
 class FakeSession:
@@ -213,6 +227,19 @@ class DeerFlowRuntimeTests(unittest.TestCase):
         self.assertIn("https://example.com/report", result["markdown"])
         self.assertEqual(result["sources"][0]["sourceId"], "S1")
 
+    def test_local_report_does_not_hallucinate_when_sources_are_empty(self):
+        service = LiveReportServiceV2()
+
+        with patch.object(service, "collect", return_value=[]):
+            with patch.object(service.llm_connector, "summarize") as summarize_mock:
+                result = service.generate_with_local_chain("平安银行 季报", "30d")
+
+        summarize_mock.assert_not_called()
+        self.assertEqual(result["sources"], [])
+        self.assertEqual(result["searchProfile"], "earnings-and-guidance")
+        self.assertIn("没有检索到可用于支撑分析结论的有效来源", result["markdown"])
+        self.assertIn("本次报告未返回可用来源", result["markdown"])
+
     def test_tavily_connector_builds_payload_with_filters(self):
         with patch.dict(
             "os.environ",
@@ -229,8 +256,9 @@ class DeerFlowRuntimeTests(unittest.TestCase):
             },
         ):
             connector = TavilyConnector(api_key="test-key")
-            profile = connector.resolve_profile("航运融资租赁")
-            payload = connector._build_payload("航运融资租赁", "7d", 6, profile)
+            intent = infer_query_intent("航运融资租赁")
+            profile = connector.resolve_profile("航运融资租赁", intent)
+            payload = connector._build_payload("航运融资租赁", "7d", 6, profile, intent)
 
         self.assertEqual(profile.name, "shipping-finance-leasing")
         self.assertEqual(payload["topic"], "news")
@@ -252,6 +280,58 @@ class DeerFlowRuntimeTests(unittest.TestCase):
         profile = resolve_search_profile("任意主题", "shipping-finance-leasing")
         self.assertEqual(profile.name, "shipping-finance-leasing")
 
+    def test_search_profile_resolution_matches_stock_industry_news(self):
+        profile = resolve_search_profile("光伏行业资讯", "auto")
+        self.assertEqual(profile.name, "stock-industry-news")
+
+    def test_search_profile_resolution_matches_earnings_profile(self):
+        profile = resolve_search_profile("特斯拉财报", "auto")
+        self.assertEqual(profile.name, "earnings-and-guidance")
+
+    def test_search_profile_resolution_matches_chinese_quarterly_report_profile(self):
+        profile = resolve_search_profile("平安银行 季报", "auto")
+        self.assertEqual(profile.name, "earnings-and-guidance")
+
+    def test_search_profile_resolution_matches_macro_profile(self):
+        profile = resolve_search_profile("美国利率与黄金走势", "auto")
+        self.assertEqual(profile.name, "macro-rates-commodities")
+
+    def test_query_intent_infers_earnings_query(self):
+        intent = infer_query_intent("特斯拉 TSLA 财报")
+        self.assertEqual(intent.profile_hint, "earnings-and-guidance")
+        self.assertEqual(intent.ticker, "TSLA")
+        self.assertEqual(intent.canonical_symbol, "US:TSLA")
+        self.assertIn("earnings guidance results", intent.normalized_topic)
+
+    def test_query_intent_infers_chinese_quarterly_report_query(self):
+        intent = infer_query_intent("平安银行 季报")
+        self.assertEqual(intent.profile_hint, "earnings-and-guidance")
+
+    def test_query_intent_infers_company_news_query_from_stock_code(self):
+        intent = infer_query_intent("600519 公司公告")
+        self.assertEqual(intent.profile_hint, "ticker-company-news")
+        self.assertEqual(intent.security_code, "600519")
+        self.assertEqual(intent.canonical_symbol, "SHSE:600519")
+
+    def test_query_intent_infers_macro_query(self):
+        intent = infer_query_intent("美债收益率和黄金")
+        self.assertEqual(intent.profile_hint, "macro-rates-commodities")
+
+    def test_security_identifier_normalizes_us_symbol(self):
+        identifier = normalize_security_identifier("TSLA")
+        self.assertEqual(identifier.canonical_symbol, "US:TSLA")
+        self.assertEqual(identifier.market, "US")
+
+    def test_security_identifier_normalizes_cn_symbol(self):
+        identifier = normalize_security_identifier("600519")
+        self.assertEqual(identifier.canonical_symbol, "SHSE:600519")
+        self.assertEqual(identifier.market, "CN")
+
+    def test_security_identifier_normalizes_hk_symbol(self):
+        identifier = normalize_security_identifier("0700.HK")
+        self.assertEqual(identifier.canonical_symbol, "HKEX:0700")
+        self.assertEqual(identifier.market, "HK")
+
     def test_evidence_excerpt_prefers_raw_content(self):
         service = LiveReportServiceV2()
         excerpt = service._evidence_excerpt(
@@ -262,6 +342,143 @@ class DeerFlowRuntimeTests(unittest.TestCase):
         )
 
         self.assertEqual(excerpt, "原文正文内容")
+
+    def test_official_source_connector_parses_stats_rss(self):
+        rss_text = """
+        <rss>
+          <channel>
+            <item>
+              <title>2026年3月制造业采购经理指数运行情况</title>
+              <link>https://www.stats.gov.cn/example/pmi.html</link>
+              <pubDate>Fri, 28 Mar 2026 10:00:00 GMT</pubDate>
+              <description>3月份制造业PMI为50.8%。</description>
+            </item>
+          </channel>
+        </rss>
+        """
+
+        def fake_request(method, url, headers=None, timeout=30, json_body=None):
+            self.assertEqual(method, "GET")
+            self.assertIn("stats.gov.cn", url)
+            return FakeTextResponse(200, rss_text)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "ENABLE_OFFICIAL_SOURCES": "true",
+                "OFFICIAL_SOURCE_NAMES": "stats",
+                "OFFICIAL_SOURCE_MAX_RESULTS": "3",
+            },
+        ):
+            with patch("official_sources.request_json", side_effect=fake_request):
+                connector = OfficialPublicSourceConnector()
+                results = connector.search("制造业 PMI", "30d", 3)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["source"], "国家统计局")
+        self.assertEqual(results[0]["sourceBackend"], "official")
+        self.assertEqual(results[0]["sourceChannel"], "stats")
+        self.assertIn("PMI", results[0]["summary"])
+
+    def test_official_source_connector_parses_csrc_html_list(self):
+        html_text = """
+        <ul class="list">
+          <li><a href="/csrc/c100040/c7654321/content.shtml">证监会发布上市公司信息披露监管动态</a><span>2026-03-27</span></li>
+        </ul>
+        """
+
+        def fake_request(method, url, headers=None, timeout=30, json_body=None):
+            self.assertEqual(method, "GET")
+            self.assertIn("csrc.gov.cn", url)
+            return FakeTextResponse(200, html_text)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "ENABLE_OFFICIAL_SOURCES": "true",
+                "OFFICIAL_SOURCE_NAMES": "csrc",
+                "OFFICIAL_SOURCE_MAX_RESULTS": "2",
+            },
+        ):
+            with patch("official_sources.request_json", side_effect=fake_request):
+                connector = OfficialPublicSourceConnector()
+                results = connector.search("证券监管", "30d", 2)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["source"], "中国证监会")
+        self.assertEqual(results[0]["sourceChannel"], "csrc")
+        self.assertTrue(results[0]["url"].startswith("https://www.csrc.gov.cn/"))
+
+    def test_official_source_connector_parses_cninfo_homepage_notice(self):
+        html_text = """
+        <div class="headlines">
+          <a href="/new/disclosure/detail?plate=szse&stockCode=000001&announcementId=123456">
+            平安银行：2026年第一季度报告
+          </a>
+          <span>2026-03-28</span>
+        </div>
+        """
+
+        def fake_request(method, url, headers=None, timeout=30, json_body=None):
+            self.assertEqual(method, "GET")
+            self.assertEqual(url, "https://www.cninfo.com.cn/")
+            return FakeTextResponse(200, html_text)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "ENABLE_OFFICIAL_SOURCES": "true",
+                "OFFICIAL_SOURCE_NAMES": "cninfo",
+                "OFFICIAL_SOURCE_MAX_RESULTS": "2",
+            },
+        ):
+            with patch("official_sources.request_json", side_effect=fake_request):
+                connector = OfficialPublicSourceConnector()
+                results = connector.search("平安银行 季报", "30d", 2)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["source"], "巨潮资讯")
+        self.assertEqual(results[0]["sourceChannel"], "cninfo")
+        self.assertIn("季度报告", results[0]["title"])
+        self.assertTrue(results[0]["url"].startswith("https://www.cninfo.com.cn/"))
+
+    def test_collect_prioritizes_official_sources_before_tavily(self):
+        service = LiveReportServiceV2()
+        official_items = [
+            {
+                "title": "国家统计局发布工业数据",
+                "summary": "官方数据摘要",
+                "source": "国家统计局",
+                "sourceBackend": "official",
+                "url": "https://www.stats.gov.cn/example/data.html",
+            }
+        ]
+        tavily_items = [
+            {
+                "title": "媒体解读工业数据",
+                "summary": "媒体摘要",
+                "source": "example.com",
+                "url": "https://example.com/news",
+            }
+        ]
+
+        with patch.object(service.official_connector, "is_enabled", return_value=True):
+            with patch.object(service.official_connector, "search", return_value=official_items):
+                with patch.object(service.search_connector, "is_configured", return_value=True):
+                    with patch.object(service.search_connector, "search", return_value=tavily_items):
+                        collected = service.collect("工业数据", "7d")
+
+        self.assertEqual(len(collected), 2)
+        self.assertEqual(collected[0]["sourceBackend"], "official")
+        self.assertEqual(collected[0]["sourceId"], "S1")
+        self.assertEqual(collected[1]["source"], "example.com")
+
+    def test_settings_enable_exchange_and_cninfo_sources_by_default(self):
+        settings = get_settings()
+
+        self.assertIn("cninfo", settings.official_source_names)
+        self.assertIn("sse", settings.official_source_names)
+        self.assertIn("szse", settings.official_source_names)
 
     def test_status_probe_reports_effective_local_when_deerflow_unreachable(self):
         probe = DeerFlowStatusProbe()

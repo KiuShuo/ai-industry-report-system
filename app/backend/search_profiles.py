@@ -11,6 +11,7 @@ class SearchProfile:
     query_hint: str = "latest industry updates market trends policies financing activity"
     include_domains: List[str] = field(default_factory=list)
     exclude_domains: List[str] = field(default_factory=list)
+    exact_match: bool = False
 
 
 GENERIC_PROFILE = SearchProfile(
@@ -58,7 +59,193 @@ SHIPPING_FINANCE_PROFILE = SearchProfile(
 )
 
 
+STOCK_INDUSTRY_NEWS_PROFILE = SearchProfile(
+    name="stock-industry-news",
+    description="Profile for equity investors tracking industry trends, demand cycles, policy moves, and listed-company sector news.",
+    match_keywords=[
+        "行业资讯",
+        "行业研究",
+        "产业链",
+        "景气度",
+        "板块机会",
+        "赛道",
+        "行业动态",
+        "sector",
+        "industry news",
+        "equity industry",
+    ],
+    tavily_topic="finance",
+    query_hint=(
+        "china a-share listed companies sector industry chain demand pricing policy earnings capacity "
+        "supply chain market share regulation official disclosure"
+    ),
+    include_domains=[
+        "cninfo.com.cn",
+        "csrc.gov.cn",
+        "gov.cn",
+        "cs.com.cn",
+        "cnstock.com",
+        "stcn.com",
+        "bse.cn",
+        "sse.com.cn",
+        "szse.cn",
+        "stats.gov.cn",
+        "miit.gov.cn",
+        "safe.gov.cn",
+        "customs.gov.cn",
+    ],
+    exclude_domains=[
+        "baike.baidu.com",
+        "linkedin.com",
+        "zhidao.baidu.com",
+    ],
+)
+
+
+TICKER_COMPANY_NEWS_PROFILE = SearchProfile(
+    name="ticker-company-news",
+    description="Profile for company-level listed-stock news, corporate events, and filing-related developments.",
+    match_keywords=[
+        "个股",
+        "股票新闻",
+        "公司公告",
+        "上市公司",
+        "ticker",
+        "company news",
+        "stock news",
+        "earnings call",
+        "guidance",
+    ],
+    tavily_topic="finance",
+    query_hint=(
+        "china a-share company announcement disclosure quarterly report annual report earnings guidance "
+        "exchange inquiry regulatory letter buyback dividends merger acquisition"
+    ),
+    include_domains=[
+        "cninfo.com.cn",
+        "csrc.gov.cn",
+        "cs.com.cn",
+        "cnstock.com",
+        "stcn.com",
+        "bse.cn",
+        "sse.com.cn",
+        "szse.cn",
+    ],
+    exclude_domains=[
+        "baike.baidu.com",
+        "linkedin.com",
+    ],
+    exact_match=True,
+)
+
+
+EARNINGS_AND_GUIDANCE_PROFILE = SearchProfile(
+    name="earnings-and-guidance",
+    description="Profile for earnings releases, guidance revisions, calendars, and analyst estimate related news.",
+    match_keywords=[
+        "财报",
+        "年报",
+        "半年报",
+        "中报",
+        "季报",
+        "一季报",
+        "三季报",
+        "业绩预告",
+        "业绩快报",
+        "盈利预测",
+        "业绩指引",
+        "earnings",
+        "guidance",
+        "results",
+        "quarterly report",
+    ],
+    tavily_topic="finance",
+    query_hint=(
+        "china a-share quarterly report annual report earnings preannouncement performance express guidance "
+        "estimate revision revenue profit margin official disclosure"
+    ),
+    include_domains=[
+        "cninfo.com.cn",
+        "csrc.gov.cn",
+        "cs.com.cn",
+        "cnstock.com",
+        "stcn.com",
+        "bse.cn",
+        "sse.com.cn",
+        "szse.cn",
+    ],
+    exclude_domains=[
+        "baike.baidu.com",
+        "linkedin.com",
+    ],
+)
+
+
+MACRO_RATES_COMMODITIES_PROFILE = SearchProfile(
+    name="macro-rates-commodities",
+    description="Profile for macro, interest rates, inflation, FX, and commodity market developments relevant to investors.",
+    match_keywords=[
+        "宏观",
+        "利率",
+        "加息",
+        "降息",
+        "通胀",
+        "非农",
+        "cpi",
+        "ppi",
+        "pmi",
+        "美债",
+        "国债",
+        "收益率",
+        "原油",
+        "黄金",
+        "铜价",
+        "天然气",
+        "汇率",
+        "美元",
+        "commodity",
+        "macro",
+        "rates",
+        "inflation",
+        "oil",
+        "gold",
+        "copper",
+    ],
+    tavily_topic="finance",
+    query_hint=(
+        "macro economy inflation rates central bank treasury yield FX commodities oil gold copper natural gas "
+        "policy outlook supply demand"
+    ),
+    include_domains=[
+        "federalreserve.gov",
+        "ecb.europa.eu",
+        "imf.org",
+        "worldbank.org",
+        "bls.gov",
+        "bea.gov",
+        "eia.gov",
+        "opec.org",
+        "reuters.com",
+        "bloomberg.com",
+        "wsj.com",
+        "marketwatch.com",
+        "stlouisfed.org",
+        "gov.cn",
+        "stats.gov.cn",
+        "pbc.gov.cn",
+    ],
+    exclude_domains=[
+        "baike.baidu.com",
+        "linkedin.com",
+    ],
+)
+
+
 BUILTIN_SEARCH_PROFILES = [
+    MACRO_RATES_COMMODITIES_PROFILE,
+    EARNINGS_AND_GUIDANCE_PROFILE,
+    TICKER_COMPANY_NEWS_PROFILE,
+    STOCK_INDUSTRY_NEWS_PROFILE,
     SHIPPING_FINANCE_PROFILE,
     GENERIC_PROFILE,
 ]

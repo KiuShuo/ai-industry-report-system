@@ -1,6 +1,8 @@
 from typing import Dict, List
 
+from query_intent import infer_query_intent
 from tavily_connector import TavilyConnector
+from official_sources import OfficialPublicSourceConnector
 from deepseek_connector import DeepSeekConnector
 from analysis_pipeline import AnalysisPipeline
 from markdown_renderer import render_markdown_to_html
@@ -12,6 +14,7 @@ from settings import get_settings
 class LiveReportServiceV2:
     def __init__(self):
         self.search_connector = TavilyConnector()
+        self.official_connector = OfficialPublicSourceConnector()
         self.llm_connector = DeepSeekConnector()
         self.pipeline = AnalysisPipeline()
         self.deerflow_client = DeerFlowRuntimeClient()
@@ -19,9 +22,28 @@ class LiveReportServiceV2:
         self.settings = get_settings()
 
     def collect(self, topic: str, time_range: str) -> List[Dict[str, str]]:
-        raw_items = self.search_connector.search(topic, time_range)
+        raw_items: List[Dict[str, str]] = []
+        if self.official_connector.is_enabled():
+            raw_items.extend(
+                self.official_connector.search(
+                    topic,
+                    time_range,
+                    max_results=max(self.settings.official_source_max_results * 2, 4),
+                )
+            )
+
+        if self.search_connector.is_configured():
+            raw_items.extend(self.search_connector.search(topic, time_range))
+        elif not raw_items:
+            raw_items.extend(self.search_connector.search(topic, time_range))
+
         collected: List[Dict[str, str]] = []
+        seen = set()
         for index, item in enumerate(raw_items, start=1):
+            dedupe_key = (item.get("title", ""), item.get("url", ""))
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
             normalized = dict(item)
             normalized.setdefault("sourceId", f"S{index}")
             collected.append(normalized)
@@ -96,13 +118,44 @@ class LiveReportServiceV2:
             return markdown
         return f"{markdown.rstrip()}\n\n---\n\n{sources_section}\n"
 
+    def _resolved_search_profile_name(self, topic: str) -> str:
+        intent = infer_query_intent(topic)
+        profile = self.search_connector.resolve_profile(topic, intent)
+        return profile.name
+
+    def build_no_source_markdown(self, topic: str, time_range: str) -> str:
+        lines = [
+            f"# {topic} 行业动态分析报告",
+            "",
+            "## 结果说明",
+            f"- 本次检索时间范围：{time_range}",
+            "- 当前没有检索到可用于支撑分析结论的有效来源。",
+            "- 为避免生成无法核验的内容，系统已停止输出实质性分析结论。",
+            "",
+            "## 建议处理",
+            "- 缩短或调整查询主题，优先使用公司全称、股票代码、公告关键词。",
+            "- 检查当前主题是否需要补充更精确的官方数据源或专门的公告检索接口。",
+            "- 如继续生成报告，请先确认至少存在一条可核验来源。",
+            "",
+            "## 数据来源",
+            "",
+            "- 本次报告未返回可用来源。",
+        ]
+        return "\n".join(lines)
+
     def generate_with_local_chain(self, topic: str, time_range: str) -> Dict[str, str]:
         raw_items = self.collect(topic, time_range)
         analyzed_items = self.analyze(raw_items)
-        search_profile = analyzed_items[0].get("searchProfile", "generic-industry") if analyzed_items else "generic-industry"
-        prompt = self.build_prompt(topic, time_range, analyzed_items)
-        markdown = self.llm_connector.summarize(prompt)
-        markdown = self.append_sources_to_markdown(markdown, analyzed_items)
+        search_profile = analyzed_items[0].get("searchProfile") if analyzed_items else self._resolved_search_profile_name(topic)
+        if not search_profile:
+            search_profile = self._resolved_search_profile_name(topic)
+
+        if analyzed_items:
+            prompt = self.build_prompt(topic, time_range, analyzed_items)
+            markdown = self.llm_connector.summarize(prompt)
+            markdown = self.append_sources_to_markdown(markdown, analyzed_items)
+        else:
+            markdown = self.build_no_source_markdown(topic, time_range)
         html = render_markdown_to_html(markdown) if markdown else ""
         return {
             "mode": "local",

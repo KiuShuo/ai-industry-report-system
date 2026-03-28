@@ -22,6 +22,10 @@ def _env_csv(name: str, default: str = "") -> List[str]:
 class RuntimeSettings:
     tavily_api_key: str = field(default_factory=lambda: _env("TAVILY_API_KEY", ""))
     search_profile: str = field(default_factory=lambda: _env("SEARCH_PROFILE", "auto"))
+    enable_official_sources: bool = field(default_factory=lambda: _env_bool("ENABLE_OFFICIAL_SOURCES", "true"))
+    official_source_names: List[str] = field(default_factory=lambda: _env_csv("OFFICIAL_SOURCE_NAMES", "cninfo,stats,csrc,sse,szse,miit,safe,customs"))
+    official_source_max_results: int = field(default_factory=lambda: int(_env("OFFICIAL_SOURCE_MAX_RESULTS", "2")))
+    official_source_timeout: float = field(default_factory=lambda: float(_env("OFFICIAL_SOURCE_TIMEOUT", "12")))
     tavily_topic: str = field(default_factory=lambda: _env("TAVILY_TOPIC", "news"))
     tavily_search_depth: str = field(default_factory=lambda: _env("TAVILY_SEARCH_DEPTH", "advanced"))
     tavily_include_answer: bool = field(default_factory=lambda: _env_bool("TAVILY_INCLUDE_ANSWER", "false"))
